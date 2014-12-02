@@ -2,6 +2,8 @@ orientdb-debian-packager
 ========================
 
 Deb-packager for the Java compiled OrientDB server.
+This script is based on Dino Ciuffetti scripts taken [here](https://groups.google.com/forum/#!topic/orient-database/vcHXWOyT4oI) and tested with OrientDB community edition v1.7.10.
+Should work normaly with all 1.7.x versions.
 
 # Usage
 
@@ -21,3 +23,4 @@ $ ./mkpkg-orientdb <path_to_archive.tar.gz>
 ```bash
 # service orientdb start
 ```
+Config files are located in /etc/orientdb

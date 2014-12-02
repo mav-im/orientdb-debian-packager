@@ -1,0 +1,303 @@
+#!/bin/bash
+
+# Author: Alexander Milke <milke.av@gmail.com>
+# Details: Generate a Debian package from a OrientDB source compiled directory
+
+# backup IFS variable
+OLD_IFS=$IFS
+UMASK=`umask`
+
+# the archive filename
+ARCHIVE_NAME=""
+CUR_PATH=`pwd`
+# temporary subfolder
+PACKAGE_PATH="package"
+# temporary subfolder
+TEMP_PATH="temp"
+
+# Full extract path
+EXTR_PATH=${CUR_PATH}/${TEMP_PATH}
+BUILD_PATH=${CUR_PATH}/${PACKAGE_PATH}
+
+VERSION=""
+LONGDATE=`LANG=;date`
+DATE_RFC2822=`LANG=;date -R`
+
+ORIENTDB_USER="orientdb"
+
+BUILD="2014-11-19 18:25:20+0000"
+
+# show script usage
+usage () {
+    cat << EOF
+Usage:
+    `basename $0` [options] [filename]
+        This script makes Debian/Ubuntu package for OrientDB Server.
+        The filename is OrientDB tar.gz-file.
+Options:
+  -h | --help  View this message
+EOF
+}
+
+# options parser for check_args function
+option_parse()
+{
+	# Unexpected argument?
+	arg=`expr match "$1" ".*\([^-h]\)"`
+	if [ -n "$arg" ]; then
+		echo "There is unexpected option specified. Exit."
+		usage
+		exit 2
+	fi
+
+	# Show help?
+	arg=`expr match "$1" ".*\([h]\)"`
+	if [ -n "$arg" ]; then
+		usage
+		exit 0
+	fi
+}
+
+# check input arguments
+check_args()
+{
+	if [ -z "$1" ]; then
+		echo "There is no arguments specified. Exit."
+		usage
+		exit 1
+	fi
+
+	for arg in $@
+	do
+		case ${arg} in
+
+			--help)		option_parse -h;;
+
+			-[a-z]*)  options=`expr match "$arg" "\(-[a-z]*\)"`
+							  option_parse ${options};;
+
+        *)			options=`expr match "$arg" "\(.*\.tar\.gz\)"`
+                if [ -z "$options" ]; then
+                  echo "There is unexpected argument \"$arg\" specified. Exit."
+                  usage
+                  exit 2
+
+                elif [ -f "$options" ]; then
+                  if [ -n "$ARCHIVE_NAME" ]; then
+                    echo "Too many filenames specified. Exit."
+                    usage
+                    exit 3
+                  fi
+                  ARCHIVE_NAME=${options}
+
+                else
+                  echo "The specified argument \"${options}\" is not a file. Exit."
+                  usage
+                  exit 4
+                fi;;
+		esac
+	done
+}
+
+# check the system functionality
+check_funcs()
+{
+	FAKEROOT=`which fakeroot`
+	echo -n "Checking for fakeroot... "
+	if [ -z "$FAKEROOT" ]; then
+		echo "Error"
+		echo "Please install package fakeroot. Exit."
+		exit 5
+	fi
+	echo "Found"
+
+	HELP2MAN=`which help2man`
+	echo -n "Checking for help2man... "
+	if [ -z "$HELP2MAN" ]; then
+		echo "Error"
+		echo "Please install package help2man. Exit."
+		exit 5
+	fi
+	echo "Found"
+}
+
+# Package name parser
+package_name_parse()
+{
+	if [ -z "$1" ]; then
+		echo "There is no OrientDB archive file specified. Exit."
+		usage
+		exit 6
+	else
+		echo "The specified file \"$1\" found."
+	fi
+
+  name=`basename $1`
+	IFS="-"
+
+	name=( ${name} )
+	VERSION=${name[2]%.tar.gz}
+
+	# restore IFS variable
+	IFS=${OLD_IFS}
+}
+
+unpack_archive()
+{
+	umask 022
+	echo -n "Clean old temporary files... "
+	rm -rf ${EXTR_PATH}
+	mkdir ${EXTR_PATH}
+	echo "Done"
+
+	echo -n "Unpack OrientDB tarball file to $EXTR_PATH... "
+	tar --strip-components=1 -xvf $1 -C ${EXTR_PATH} > /dev/null
+	if [ "$?" != 0 ]; then
+		umask ${UMASK}
+		exit 5
+	fi
+	echo "Done"
+
+	umask ${UMASK}
+}
+
+mv_package_files()
+{
+	umask 022
+	rm -rf ${BUILD_PATH}
+	mkdir ${BUILD_PATH}
+
+	mkdir -p ${BUILD_PATH}/etc/orientdb
+	mkdir -p ${BUILD_PATH}/etc/init.d
+	mkdir -p ${BUILD_PATH}/var/lib/orientdb
+	mkdir -p ${BUILD_PATH}/var/log/orientdb
+	mkdir -p ${BUILD_PATH}/usr/bin
+	mkdir -p ${BUILD_PATH}/usr/share/doc/orientdb/examples
+	mkdir -p ${BUILD_PATH}/usr/share/orientdb
+	mkdir -p ${BUILD_PATH}/usr/share/man/man1
+
+
+	echo -n "Moving files for package. Please wait... "
+
+	cp -ar ${EXTR_PATH}/*	${BUILD_PATH}/usr/share/orientdb
+
+	# Binary
+#	TEST=`cat ${EXTR_PATH}/bin/console.sh | sed -n -e '/Dorientdb.build.number/ s/.*\=" *//p'`
+#	TEST=`cat ${EXTR_PATH}/bin/console.sh | sed -n '/-Dorientdb.build.number="/, /"/p'`
+#	echo $TEST
+	cat ${CUR_PATH}/helpers/bin/orientdb-console.tpl.sh | sed -e "s/%VERSION%/${VERSION}/g;s/%BUILD%/${BUILD}/g" > ${BUILD_PATH}/usr/bin/orientdb-console
+	cat ${CUR_PATH}/helpers/bin/orientdb-server.tpl.sh | sed -e "s/%VERSION%/${VERSION}/g;s/%BUILD%/${BUILD}/g" > ${BUILD_PATH}/usr/bin/orientdb-server
+	cat ${CUR_PATH}/helpers/bin/orientdb-dserver.tpl.sh | sed -e "s/%VERSION%/${VERSION}/g;s/%BUILD%/${BUILD}/g" > ${BUILD_PATH}/usr/bin/orientdb-dserver
+	chmod 755 ${BUILD_PATH}/usr/bin/*
+
+	rm -f ${BUILD_PATH}/usr/share/orientdb/bin/.??*
+	rm -f ${BUILD_PATH}/usr/share/orientdb/bin/*.bat
+
+	rm -f ${BUILD_PATH}/usr/share/orientdb/bin/server.sh
+	rm -f ${BUILD_PATH}/usr/share/orientdb/bin/dserver.sh
+	rm -f ${BUILD_PATH}/usr/share/orientdb/bin/console.sh
+	rm -f ${BUILD_PATH}/usr/share/orientdb/bin/orient.sh
+
+	ln -s /usr/bin/orientdb-console ${BUILD_PATH}/usr/share/orientdb/bin/console.sh
+	ln -s /usr/bin/orientdb-server ${BUILD_PATH}/usr/share/orientdb/bin/server.sh
+	ln -s /usr/bin/orientdb-dserver ${BUILD_PATH}/usr/share/orientdb/bin/dserver.sh
+
+	# Doc
+	cat ${BUILD_PATH}/usr/share/orientdb/config/orientdb-server-log.properties | strings | sed 's/java.util.logging.FileHandler.pattern=.*/java.util.logging.FileHandler.pattern=\/var\/log\/orientdb\/orient-server.log/g' | gzip --best > ${BUILD_PATH}/usr/share/doc/orientdb/examples/orientdb-server-log.properties.gz
+	cat ${BUILD_PATH}/usr/share/orientdb/config/orientdb-client-log.properties | gzip --best > ${BUILD_PATH}/usr/share/doc/orientdb/examples/orientdb-client-log.properties.gz
+	cat ${BUILD_PATH}/usr/share/orientdb/config/orientdb-server-config.xml | strings | sed 's/<user name="root".*//g' | gzip --best > ${BUILD_PATH}/usr/share/doc/orientdb/examples/orientdb-server-config.xml.gz
+	cat ${BUILD_PATH}/usr/share/orientdb/config/orientdb-dserver-config.xml | strings | sed 's/<user name="root".*//g' | gzip --best > ${BUILD_PATH}/usr/share/doc/orientdb/examples/orientdb-dserver-config.xml.gz
+
+	rm -f ${BUILD_PATH}/usr/share/orientdb/config/orientdb-dserver-config.xml
+	rm -f ${BUILD_PATH}/usr/share/orientdb/config/orientdb-server-config.xml
+	rm -f ${BUILD_PATH}/usr/share/orientdb/config/orientdb-server-log.properties
+	rm -f ${BUILD_PATH}/usr/share/orientdb/config/orientdb-client-log.properties
+
+	# Config
+	mv ${BUILD_PATH}/usr/share/orientdb/config/* ${BUILD_PATH}/etc/orientdb
+	rm -rf ${BUILD_PATH}/usr/share/orientdb/config
+	ln -s /etc/orientdb ${BUILD_PATH}/usr/share/orientdb/config
+
+	# Log
+	rm -fr ${BUILD_PATH}/usr/share/orientdb/log
+	ln -s /var/log/orientdb ${BUILD_PATH}/usr/share/orientdb/log
+
+	# Databases
+	rm -fr ${BUILD_PATH}/usr/share/orientdb/databases
+	ln -s /var/lib/orientdb ${BUILD_PATH}/usr/share/orientdb/databases
+
+	# Generating manual pages
+	mkdir -p ${EXTR_PATH}/man
+
+	cat ${CUR_PATH}/helpers/man/orientdb-console.tpl.sh | sed 's/%VERSION%/'${VERSION}'/g' > ${EXTR_PATH}/man/orientdb-console
+	cat ${CUR_PATH}/helpers/man/orientdb-server.tpl.sh | sed 's/%VERSION%/'${VERSION}'/g' > ${EXTR_PATH}/man/orientdb-server
+	cat ${CUR_PATH}/helpers/man/orientdb-dserver.tpl.sh | sed 's/%VERSION%/'${VERSION}'/g' > ${EXTR_PATH}/man/orientdb-dserver
+
+	chmod 755 ${EXTR_PATH}/man/*
+
+	help2man --no-info --name="OrientDB Server Console (cli)" --section=1  ${EXTR_PATH}/man/orientdb-console | gzip --best > ${BUILD_PATH}/usr/share/man/man1/orientdb-console.1.gz
+	help2man --no-info --name="OrientDB Server startup wrapper" --section=1  ${EXTR_PATH}/man/orientdb-server | gzip --best > ${BUILD_PATH}/usr/share/man/man1/orientdb-server.1.gz
+	help2man --no-info --name="OrientDB Distributed Server startup wrapper" --section=1  ${EXTR_PATH}/man/orientdb-dserver | gzip --best > ${BUILD_PATH}/usr/share/man/man1/orientdb-dserver.1.gz
+
+	# Init.d script
+	cat ${CUR_PATH}/helpers/init/orientdb.tpl.sh | sed -e "s/%ORIENTDB_DIR%/\/usr\/share\/orientdb/g;s/%ORIENTDB_USER%/${ORIENTDB_USER}/g" > ${BUILD_PATH}/etc/init.d/orientdb
+	chmod 755 ${BUILD_PATH}/etc/init.d/orientdb
+
+	# Benchmarks
+	rm -f ${BUILD_PATH}/usr/share/orientdb/benchmarks/*.exe
+	rm -f ${BUILD_PATH}/usr/share/orientdb/benchmarks/*.bat
+	chmod 755 ${BUILD_PATH}/usr/share/orientdb/benchmarks/*.sh
+
+	# Licenses
+	cat ${CUR_PATH}/licenses/copyright.tpl | sed 's/%VERSION%/'${VERSION}'/g' | sed 's/%DATE%/'"${LONGDATE}"'/g' > ${BUILD_PATH}/usr/share/doc/orientdb/copyright
+	cat ${CUR_PATH}/licenses/changelog.tpl | sed 's/%VERSION%/'${VERSION}'/g' | sed 's/%DATE%/'"${DATE_RFC2822}"'/g' | gzip --best > ${BUILD_PATH}/usr/share/doc/orientdb/changelog.gz
+	cat ${CUR_PATH}/licenses/changelog.tpl | sed 's/%VERSION%/'${VERSION}'/g' | sed 's/%DATE%/'"${DATE_RFC2822}"'/g' | gzip --best > ${BUILD_PATH}/usr/share/doc/orientdb/changelog.Debian.gz
+
+	echo "Done"
+	umask ${UMASK}
+}
+
+make_control_files()
+{
+	echo -n "Creating control and install files... "
+	umask 022
+	mkdir -p ${BUILD_PATH}/DEBIAN
+
+	SIZE=$((`du -s ${BUILD_PATH}/usr | awk '{print $1}'`))
+	SIZE=$((${SIZE} + `du -s ${BUILD_PATH}/etc | awk '{print $1}'`))
+	SIZE=$((${SIZE} + `du -s ${BUILD_PATH}/var | awk '{print $1}'`))
+
+	cat ${CUR_PATH}/debian/control.tpl | sed "s/%VERSION%/${VERSION}/g;s/%SIZE%/${SIZE}/g" > ${BUILD_PATH}/DEBIAN/control
+	cat ${CUR_PATH}/debian/postinst.tpl.sh > ${BUILD_PATH}/DEBIAN/postinst
+	cat ${CUR_PATH}/debian/prerm.tpl.sh > ${BUILD_PATH}/DEBIAN/prerm
+	cat ${CUR_PATH}/debian/postrm.tpl.sh > ${BUILD_PATH}/DEBIAN/postrm
+	cat ${CUR_PATH}/debian/preinst.tpl.sh > ${BUILD_PATH}/DEBIAN/preinst
+
+	chmod 755 ${BUILD_PATH}/DEBIAN/postinst ${BUILD_PATH}/DEBIAN/prerm ${BUILD_PATH}/DEBIAN/preinst ${BUILD_PATH}/DEBIAN/postrm
+
+	echo "Done"
+	umask ${UMASK}
+}
+
+make_package()
+{
+	echo "Package version: $VERSION"
+	fakeroot dpkg-deb -b ${BUILD_PATH} ${CUR_PATH}
+}
+
+clear_temp_files()
+{
+	rm -rf ${EXTR_PATH}
+	rm -rf ${BUILD_PATH}
+}
+
+check_args $@
+package_name_parse ${ARCHIVE_NAME}
+check_funcs
+unpack_archive ${ARCHIVE_NAME}
+mv_package_files
+make_control_files
+make_package
+clear_temp_files
+
+exit 0

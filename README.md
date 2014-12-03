@@ -7,7 +7,7 @@ Should work normaly with all 1.7.x versions.
 
 # Usage
 
-1. Download tar.gz archive with compiled Java files from [download page](http://www.orientechnologies.com/download/)
+1. Download OrientDB tar.gz archive with compiled Java files from [download page](http://www.orientechnologies.com/download/)
 
 2. Run mkpkg-orientdb script:
 ```bash

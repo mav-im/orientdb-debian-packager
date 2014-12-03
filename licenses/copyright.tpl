@@ -26,8 +26,7 @@ License:
 Notes:
 	OrientDB is a open source powerful Object, Document, no-sql, Graph Database written in Java.
 
-	You can find more information on the official page: http://www.orientechnologies.com/orient-db.htm
-	You can subscribe to the public mailinglist: http://groups.google.com/group/orient-database
+	You can find more information on the official page: http://www.orientechnologies.com/orientdb/
 	OrientDB is released under the terms of the Apache 2.0 License.
 	OrientDB is a registered trademark.
 
